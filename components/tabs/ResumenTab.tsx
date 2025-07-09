@@ -424,14 +424,24 @@ const ResumenTab = () => {
     fetchEstadisticas()
   }, [selectedWeek, periodoSelect])
 
-  // Función para ver detalle de reportero
+  // Función para ver detalle de reportero - CÓDIGO ACTUALIZADO
   const verDetalleReportero = (reportero: ReporteroDetalle) => {
-    // SOLUCIÓN: Asegurar que las fechas de los despachos se muestren correctamente
+    // Asegurar que cada despacho tenga la fecha formateada correctamente
     const despachosConFechaCorrecta = reportero.despachos.map(despacho => {
+      // Aseguramos que primero convertimos la fecha a objeto Date sin formato
+      const fechaObj = new Date(despacho.fecha_despacho);
+      
+      // Corregimos la zona horaria agregando 5 horas (compensando UTC-5 de Lima)
+      // Este paso es clave para evitar que se muestre un día anterior
+      fechaObj.setHours(fechaObj.getHours() + 5);
+      
       return {
         ...despacho,
-        // Asegurar que la fecha se muestre correctamente usando parseDateLima
-        fecha_despacho_formateada: formatDateForDisplay(parseDateLima(despacho.fecha_despacho))
+        // Formateamos la fecha para mostrar
+        fecha_despacho_formateada: formatDateForDisplay(fechaObj, {
+          includeWeekday: false,
+          shortFormat: false
+        })
       };
     });
     
@@ -827,8 +837,12 @@ const ResumenTab = () => {
                     {reporteroSeleccionado.despachos.map((despacho) => (
                       <tr key={despacho.id} className="border-b border-[#e2e8f0]">
                         <td className="py-2 px-3 text-sm">
-                          {/* SOLUCIÓN: Usar la fecha formateada correctamente */}
-                          {despacho.fecha_despacho_formateada || formatDateForDisplay(parseDateLima(despacho.fecha_despacho))}
+                          {despacho.fecha_despacho_formateada || (() => {
+                            // Si no existe fecha_despacho_formateada, crear formato de respaldo
+                            const fechaObj = new Date(despacho.fecha_despacho);
+                            fechaObj.setHours(fechaObj.getHours() + 5); // Compensar zona horaria
+                            return formatDateForDisplay(fechaObj);
+                          })()}
                         </td>
                         <td className="py-2 px-3 text-sm">{despacho.numero_despacho}</td>
                         <td className="py-2 px-3 text-sm">{despacho.titulo || '-'}</td>

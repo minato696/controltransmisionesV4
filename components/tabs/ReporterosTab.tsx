@@ -11,6 +11,7 @@ import {
 import { formatCityName } from '../../utils/cityUtils'
 import AddReporteroModal from '../modals/AddReporteroModal'
 import ConfirmDeleteModal from '../modals/ConfirmDeleteModal'
+import { formatDateForDisplay, parseDateLima } from '@/utils/dateUtils'
 
 interface Reportero {
   id: number
@@ -308,6 +309,45 @@ const ReporterosTab = () => {
     setTimeout(() => {
       loadReporteros();
     }, 100);
+  };
+
+  // SOLUCIÓN: Ver detalles de un reportero con las fechas formateadas correctamente
+  const handleVerDetalles = async (reporteroId: number) => {
+    try {
+      setLoading(true);
+      
+      // Obtener detalles del reportero
+      const response = await fetch(`/api/reporteros/${reporteroId}`);
+      if (!response.ok) {
+        throw new Error('Error al obtener detalles del reportero');
+      }
+      
+      const reporteroDetalle = await response.json();
+      
+      // Formatear fechas para los despachos
+      if (reporteroDetalle.despachos) {
+        reporteroDetalle.despachos = reporteroDetalle.despachos.map((despacho: any) => ({
+          ...despacho,
+          fecha_formateada: formatDateForDisplay(parseDateLima(despacho.fecha_despacho))
+        }));
+      }
+      
+      // Mostrar detalles (aquí podrías abrir un modal)
+      console.log('Detalles del reportero con fechas formateadas:', reporteroDetalle);
+      
+      return reporteroDetalle;
+    } catch (error) {
+      console.error('Error al obtener detalles del reportero:', error);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: 'No se pudieron obtener los detalles del reportero'
+      });
+      return null;
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading) {

@@ -278,24 +278,35 @@ const ResumenTab = () => {
           throw new Error('Error al obtener despachos')
         }
         const dataDespachos = await responseDespachos.json()
-        setDespachos(dataDespachos)
+        
+        // SOLUCIÓN: Si es período diario, filtrar para mostrar solo despachos del día exacto
+        let despachosAjustados = dataDespachos;
+        if (periodoSelect === 'diario') {
+          despachosAjustados = dataDespachos.filter((d: Despacho) => {
+            const fechaDespacho = new Date(d.fecha_despacho).toISOString().split('T')[0];
+            return fechaDespacho === fechaInicio;
+          });
+          console.log(`Filtrados ${despachosAjustados.length} despachos para la fecha exacta ${fechaInicio}`);
+        }
+        
+        setDespachos(despachosAjustados)
 		
 		
         
-        console.log(`Recibidos ${dataDespachos.length} despachos para el período`)
+        console.log(`Recibidos ${dataDespachos.length} despachos para el período`);
         
         // Procesar datos adicionales
-        const despachosConTitulo = dataDespachos.filter((d: Despacho) => d.titulo && d.titulo.trim() !== '').length
-        const porcentajeTitulos = dataDespachos.length > 0 ? (despachosConTitulo / dataDespachos.length * 100) : 0
+        const despachosConTitulo = despachosAjustados.filter((d: Despacho) => d.titulo && d.titulo.trim() !== '').length
+        const porcentajeTitulos = despachosAjustados.length > 0 ? (despachosConTitulo / despachosAjustados.length * 100) : 0
         
         // Calcular reporteros sin actividad
-        const reporterosConDespachos = new Set(dataDespachos.map((d: Despacho) => d.reportero_id))
+        const reporterosConDespachos = new Set(despachosAjustados.map((d: Despacho) => d.reportero_id))
         const totalReporteros = await fetch('/api/reporteros').then(r => r.json()).then(data => data.length)
         const reporterosSinActividad = totalReporteros - reporterosConDespachos.size
         
         // Calcular horas pico reales
         const horasPicoMap: { [key: string]: number } = {}
-        dataDespachos.forEach((d: Despacho) => {
+        despachosAjustados.forEach((d: Despacho) => {
           if (d.hora_despacho) {
             const hora = d.hora_despacho.split(':')[0]
             horasPicoMap[hora] = (horasPicoMap[hora] || 0) + 1
@@ -310,7 +321,7 @@ const ResumenTab = () => {
         // Procesar detalle por reportero
         const reporterosMap: { [key: number]: ReporteroDetalle } = {}
         
-        dataDespachos.forEach((despacho: Despacho) => {
+        despachosAjustados.forEach((despacho: Despacho) => {
           if (!reporterosMap[despacho.reportero_id]) {
             reporterosMap[despacho.reportero_id] = {
               id: despacho.reportero_id,
@@ -365,7 +376,7 @@ const ResumenTab = () => {
           distribucionPorHora: [
             { 
               rango: 'Mañana (6-12h)', 
-              cantidad: dataDespachos.filter((d: Despacho) => {
+              cantidad: despachosAjustados.filter((d: Despacho) => {
                 const hora = parseInt(d.hora_despacho?.split(':')[0] || '0')
                 return hora >= 6 && hora < 12
               }).length,
@@ -373,7 +384,7 @@ const ResumenTab = () => {
             },
             { 
               rango: 'Tarde (12-18h)', 
-              cantidad: dataDespachos.filter((d: Despacho) => {
+              cantidad: despachosAjustados.filter((d: Despacho) => {
                 const hora = parseInt(d.hora_despacho?.split(':')[0] || '0')
                 return hora >= 12 && hora < 18
               }).length,
@@ -381,7 +392,7 @@ const ResumenTab = () => {
             },
             { 
               rango: 'Noche (18-24h)', 
-              cantidad: dataDespachos.filter((d: Despacho) => {
+              cantidad: despachosAjustados.filter((d: Despacho) => {
                 const hora = parseInt(d.hora_despacho?.split(':')[0] || '0')
                 return hora >= 18 && hora < 24
               }).length,
@@ -415,8 +426,20 @@ const ResumenTab = () => {
 
   // Función para ver detalle de reportero
   const verDetalleReportero = (reportero: ReporteroDetalle) => {
-    setReporteroSeleccionado(reportero)
-    setShowDetalleReportero(reportero.id)
+    // SOLUCIÓN: Asegurar que las fechas de los despachos se muestren correctamente
+    const despachosConFechaCorrecta = reportero.despachos.map(despacho => {
+      return {
+        ...despacho,
+        // Asegurar que la fecha se muestre correctamente usando parseDateLima
+        fecha_despacho_formateada: formatDateForDisplay(parseDateLima(despacho.fecha_despacho))
+      };
+    });
+    
+    setReporteroSeleccionado({
+      ...reportero,
+      despachos: despachosConFechaCorrecta
+    });
+    setShowDetalleReportero(reportero.id);
   }
 
   if (loading) {
@@ -804,7 +827,8 @@ const ResumenTab = () => {
                     {reporteroSeleccionado.despachos.map((despacho) => (
                       <tr key={despacho.id} className="border-b border-[#e2e8f0]">
                         <td className="py-2 px-3 text-sm">
-                          {formatDateForDisplay(parseDateLima(despacho.fecha_despacho))}
+                          {/* SOLUCIÓN: Usar la fecha formateada correctamente */}
+                          {despacho.fecha_despacho_formateada || formatDateForDisplay(parseDateLima(despacho.fecha_despacho))}
                         </td>
                         <td className="py-2 px-3 text-sm">{despacho.numero_despacho}</td>
                         <td className="py-2 px-3 text-sm">{despacho.titulo || '-'}</td>

@@ -1,0 +1,58 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuarios {
+  id                  Int         @id @default(autoincrement())
+  username            String      @unique
+  password            String      // Almacenaremos el hash de la contraseña
+  nombre              String
+  email               String?     @unique
+  rol                 String      @default("operador") // "admin" o "operador"
+  activo              Boolean     @default(true)
+  ultimo_acceso       DateTime?
+  fecha_creacion      DateTime    @default(now())
+  fecha_actualizacion DateTime    @default(now()) @updatedAt
+}
+
+model Ciudades {
+  id                  Int         @id @default(autoincrement())
+  codigo              String      @unique
+  nombre              String
+  activo              Boolean     @default(true)
+  fecha_creacion      DateTime    @default(now())
+  fecha_actualizacion DateTime    @default(now()) @updatedAt
+  reporteros          Reporteros[]
+}
+
+model Reporteros {
+  id                  Int         @id @default(autoincrement())
+  nombre              String
+  ciudad              Ciudades    @relation(fields: [ciudad_id], references: [id])
+  ciudad_id           Int
+  estado              String      @default("activo")
+  fecha_creacion      DateTime    @default(now())
+  fecha_actualizacion DateTime    @default(now()) @updatedAt
+  despachos           Despachos[]
+}
+
+model Despachos {
+  id                  Int         @id @default(autoincrement())
+  reportero           Reporteros  @relation(fields: [reportero_id], references: [id])
+  reportero_id        Int
+  numero_despacho     Int
+  titulo              String
+  hora_despacho       String      // TIME se guarda como String en Prisma
+  hora_en_vivo        String?     // opcional
+  fecha_despacho      DateTime    @db.Date
+  estado              String      @default("programado")
+  fecha_creacion      DateTime    @default(now())
+  fecha_actualizacion DateTime    @default(now()) @updatedAt
+}

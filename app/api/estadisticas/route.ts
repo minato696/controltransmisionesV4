@@ -9,6 +9,8 @@ interface Despacho {
   fecha_despacho: Date;
   hora_en_vivo: string | null;
   estado: string;
+  titulo?: string;
+  hora_despacho?: string;
   reportero: {
     id: number;
     nombre: string;
@@ -29,47 +31,83 @@ export async function GET(request: Request) {
     const fechaFinParam = searchParams.get('fechaFin');
     
     // Calcular fechas para el período
-    const hoy = new Date();
-    let fechaInicio = new Date();
-    let fechaFin = new Date();
-    
-    if (periodo === 'diario') {
-      // Si es diario y se proporciona una fecha específica
-      if (fechaParam) {
-        // SOLUCIÓN: Crear fechas directamente sin conversiones complejas
-        fechaInicio = new Date(fechaParam);
-        fechaFin = new Date(fechaParam);
-        fechaFin.setHours(23, 59, 59, 999);
-      } else {
-        // Si no se proporciona fecha, usar hoy
-        fechaInicio.setHours(0, 0, 0, 0);
-        fechaFin = hoy;
-      }
-    } else if (periodo === 'semanal') {
-      // Si se proporcionan fechas de inicio y fin específicas
-      if (fechaInicioParam && fechaFinParam) {
-        // SOLUCIÓN: Crear fechas directamente sin conversiones complejas
-        fechaInicio = new Date(fechaInicioParam);
-        fechaInicio.setHours(0, 0, 0, 0);
-        fechaFin = new Date(fechaFinParam);
-        fechaFin.setHours(23, 59, 59, 999);
-      } else {
-        // Si no, calcular la semana actual (Lunes a Domingo)
-        const dia = hoy.getDay() || 7; // 0 es domingo, así que lo convertimos a 7
-        fechaInicio.setDate(hoy.getDate() - dia + 1);
-        fechaInicio.setHours(0, 0, 0, 0);
-        fechaFin = hoy;
-      }
-    } else if (periodo === 'mensual') {
-      fechaInicio.setDate(1);
+   const hoy = new Date();
+let fechaInicio = new Date();
+let fechaFin = new Date();
+
+if (periodo === 'diario') {
+  // Si es diario y se proporciona una fecha específica
+  if (fechaParam) {
+    try {
+      // SOLUCIÓN: Asegurar que las fechas se procesan correctamente
+      fechaInicio = parseDateLima(fechaParam);
+      fechaFin = parseDateLima(fechaParam);
+      
+      // Configurar horas para abarcar todo el día
       fechaInicio.setHours(0, 0, 0, 0);
-      fechaFin = hoy;
+      fechaFin.setHours(23, 59, 59, 999);
+      
+      console.log(`Período diario con fecha específica: ${fechaParam}`);
+      console.log(`Procesado como: inicio=${fechaInicio.toISOString()}, fin=${fechaFin.toISOString()}`);
+    } catch (e) {
+      console.error(`Error procesando fecha ${fechaParam}:`, e);
+      // Si hay error, usar la fecha de hoy
+      fechaInicio = new Date(hoy);
+      fechaInicio.setHours(0, 0, 0, 0);
+      fechaFin = new Date(hoy);
+      fechaFin.setHours(23, 59, 59, 999);
     }
-    
-    console.log('Período de estadísticas (SOLUCIÓN):', {
-      periodo,
-      fechaInicio: fechaInicio.toISOString(),
-      fechaFin: fechaFin.toISOString()
+  } else {
+    // Si no se proporciona fecha, usar hoy
+    fechaInicio = new Date(hoy);
+    fechaInicio.setHours(0, 0, 0, 0);
+    fechaFin = new Date(hoy);
+    fechaFin.setHours(23, 59, 59, 999);
+  }
+} else if (periodo === 'semanal') {
+  // Si se proporcionan fechas de inicio y fin específicas
+  if (fechaInicioParam && fechaFinParam) {
+    try {
+      // SOLUCIÓN: Usar parseDateLima para procesar correctamente las fechas
+      fechaInicio = parseDateLima(fechaInicioParam);
+      fechaInicio.setHours(0, 0, 0, 0);
+      
+      fechaFin = parseDateLima(fechaFinParam);
+      fechaFin.setHours(23, 59, 59, 999);
+      
+      console.log(`Período semanal con fechas: ${fechaInicioParam} a ${fechaFinParam}`);
+      console.log(`Procesado como: inicio=${fechaInicio.toISOString()}, fin=${fechaFin.toISOString()}`);
+    } catch (e) {
+      console.error(`Error procesando rango de fechas:`, e);
+      // Si hay error, calcular semana actual
+      const dia = hoy.getDay() || 7;
+      fechaInicio = new Date(hoy);
+      fechaInicio.setDate(hoy.getDate() - dia + 1);
+      fechaInicio.setHours(0, 0, 0, 0);
+      fechaFin = new Date(hoy);
+      fechaFin.setHours(23, 59, 59, 999);
+    }
+  } else {
+    // Si no, calcular la semana actual (Lunes a Domingo)
+    const dia = hoy.getDay() || 7; // 0 es domingo, así que lo convertimos a 7
+    fechaInicio = new Date(hoy);
+    fechaInicio.setDate(hoy.getDate() - dia + 1);
+    fechaInicio.setHours(0, 0, 0, 0);
+    fechaFin = new Date(hoy);
+    fechaFin.setHours(23, 59, 59, 999);
+  }
+} else if (periodo === 'mensual') {
+  fechaInicio = new Date(hoy);
+  fechaInicio.setDate(1);
+  fechaInicio.setHours(0, 0, 0, 0);
+  fechaFin = new Date(hoy);
+  fechaFin.setHours(23, 59, 59, 999);
+}
+
+console.log('Período de estadísticas (SOLUCIÓN):', {
+  periodo,
+  fechaInicio: fechaInicio.toISOString(),
+  fechaFin: fechaFin.toISOString()
     });
     
     // Obtener todos los despachos del período
@@ -91,6 +129,37 @@ export async function GET(request: Request) {
     
     // Calcular estadísticas básicas
     const totalDespachos = despachos.length;
+    
+    // Si no hay despachos, devolver estructura con valores por defecto
+    if (totalDespachos === 0) {
+      return NextResponse.json({
+        totalDespachos: 0,
+        promedioDespachosDiarios: 0,
+        reporterosActivos: 0,
+        coberturaNacional: 0,
+        despachosEnVivo: 0,
+        porcentajeEnVivo: 0,
+        despachosConProblemas: 0,
+        porcentajeConProblemas: 0,
+        topCiudades: [],
+        topReporteros: [],
+        despachosPorDia: [],
+        reporterosSinActividad: await prisma.reporteros.count(),
+        despachosConTitulo: 0,
+        porcentajeTitulos: '0',
+        horasPicoReales: [],
+        distribucionPorHora: [
+          { rango: 'Mañana (6-12h)', cantidad: 0, porcentaje: 0 },
+          { rango: 'Tarde (12-18h)', cantidad: 0, porcentaje: 0 },
+          { rango: 'Noche (18-24h)', cantidad: 0, porcentaje: 0 }
+        ],
+        periodo: {
+          tipo: periodo,
+          fechaInicio: formatDateForAPI(fechaInicio),
+          fechaFin: formatDateForAPI(fechaFin)
+        }
+      });
+    }
     
     // Calcular días transcurridos en el período
     const diasTranscurridos = Math.max(1, Math.ceil((fechaFin.getTime() - fechaInicio.getTime()) / (1000 * 60 * 60 * 24)) + 1);

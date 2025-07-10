@@ -6,7 +6,8 @@ import {
   faChartBar, faClipboardList, faUserCheck, faCity, faArrowUp, faArrowDown,
   faGlobe, faSpinner, faVideo, faCheckCircle, faExclamationTriangle, faCalendarWeek,
   faClock, faTrophy, faChartLine, faChartPie, faFireAlt, faFilePdf, faFileAlt,
-  faUser, faExclamationCircle, faTable, faEye, faTimes
+  faUser, faExclamationCircle, faTable, faEye, faTimes, faCalendar, faSync,
+  faChevronLeft, faChevronRight
 } from '@fortawesome/free-solid-svg-icons'
 import { exportResumenSemanalPDF } from '../../utils/dashboardPdfExporter'
 import { formatCityName } from '../../utils/cityUtils'
@@ -19,7 +20,10 @@ import {
   parseDateLima,
   formatDateForDisplay,
   isWeekComplete as checkWeekComplete,
-  isCurrentWeek as checkCurrentWeek
+  isCurrentWeek as checkCurrentWeek,
+  getFirstDayOfMonth,
+  getLastDayOfMonth,
+  addDays
 } from '@/utils/dateUtils'
 
 interface Despacho {
@@ -98,333 +102,264 @@ interface Estadisticas {
 
 const ResumenTab = () => {
   const { currentDate, setNotification } = useAppContext()
-  const [selectedWeek, setSelectedWeek] = useState<string>('')
-  const [weeks, setWeeks] = useState<Array<{value: string, label: string, startDate: Date, endDate: Date, isComplete: boolean, isCurrent: boolean}>>([])
+  
+  // Estados para los filtros de fecha
   const [periodoSelect, setPeriodoSelect] = useState('semanal')
-  const [tipoSemana, setTipoSemana] = useState<'completas' | 'en_curso' | 'todas'>('todas')
+  const [fechaReferencia, setFechaReferencia] = useState<Date>(new Date(currentDate))
+  const [fechaInicio, setFechaInicio] = useState<Date>(getMondayLima(currentDate))
+  const [fechaFin, setFechaFin] = useState<Date>(getSundayLima(currentDate))
+  
+  // Estados para manejo de datos y UI
   const [estadisticas, setEstadisticas] = useState<Estadisticas | null>(null)
   const [loading, setLoading] = useState(true)
+  const [actualizando, setActualizando] = useState(false)
   const [despachos, setDespachos] = useState<Despacho[]>([])
   const [showDetalleReportero, setShowDetalleReportero] = useState<number | null>(null)
   const [reporteroSeleccionado, setReporteroSeleccionado] = useState<ReporteroDetalle | null>(null)
-
-  // Función para verificar si una semana está completa
-  const isWeekComplete = (endDate: Date) => {
-    const today = getCurrentDateLima()
-    today.setHours(0, 0, 0, 0)
-    const end = new Date(endDate)
-    end.setHours(23, 59, 59, 999)
-    return end < today
-  }
-
-  // Función para verificar si es la semana actual
-  const isCurrentWeek = (startDate: Date, endDate: Date) => {
-    const today = getCurrentDateLima()
-    today.setHours(0, 0, 0, 0)
-    const start = new Date(startDate)
-    start.setHours(0, 0, 0, 0)
-    const end = new Date(endDate)
-    end.setHours(23, 59, 59, 999)
-    return today >= start && today <= end
-  }
-
-  // Generar las semanas disponibles basadas en la fecha actual
+  
+  // Sincronizar con cambios en currentDate
   useEffect(() => {
-    const generateWeeks = () => {
-      const weeksArray = []
-      // USAR getCurrentDateLima en lugar de currentDate directamente
-      const today = getCurrentDateLima()
-      const currentMonth = today.getMonth()
-      const currentYear = today.getFullYear()
-      
-      const firstDayOfMonth = new Date(currentYear, currentMonth, 1)
-      const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0)
-      
-      // USAR getMondayLima para calcular correctamente
-      let currentWeekStart = getMondayLima(firstDayOfMonth)
-      
-      while (currentWeekStart <= lastDayOfMonth) {
-        const weekEnd = getSundayLima(currentWeekStart)
-        
-        if (weekEnd >= firstDayOfMonth) {
-          const isComplete = isWeekComplete(weekEnd)
-          const isCurrent = isCurrentWeek(currentWeekStart, weekEnd)
-          
-          let weekLabel = ''
-          const startDay = currentWeekStart.getDate()
-          const endDay = weekEnd.getDate()
-          const startMonth = currentWeekStart.toLocaleDateString('es-ES', { month: 'short' })
-          const endMonth = weekEnd.toLocaleDateString('es-ES', { month: 'short' })
-          
-          if (currentWeekStart.getMonth() === weekEnd.getMonth()) {
-            weekLabel = `Semana ${startDay} - ${endDay} ${endMonth} ${currentYear}`
-          } else {
-            weekLabel = `Semana ${startDay} ${startMonth} - ${endDay} ${endMonth} ${currentYear}`
-          }
-          
-          if (isCurrent) {
-            weekLabel += ' (En curso)'
-          } else if (isComplete) {
-            weekLabel += ' (Completa)'
-          }
-          
-          weeksArray.push({
-            value: `${formatDateForAPI(currentWeekStart)}_${formatDateForAPI(weekEnd)}`,
-            label: weekLabel,
-            startDate: new Date(currentWeekStart),
-            endDate: new Date(weekEnd),
-            isComplete,
-            isCurrent
-          })
-        }
-        
-        currentWeekStart = new Date(currentWeekStart)
-        currentWeekStart.setDate(currentWeekStart.getDate() + 7)
-      }
-      
-      // Agregar semanas del mes anterior
-      const firstDayOfPreviousMonth = new Date(currentYear, currentMonth - 1, 1)
-      const lastDayOfPreviousMonth = new Date(currentYear, currentMonth, 0)
-      currentWeekStart = getMondayLima(new Date(lastDayOfPreviousMonth))
-      
-      for (let i = 0; i < 4; i++) {
-        currentWeekStart.setDate(currentWeekStart.getDate() - 7)
-        const weekEnd = getSundayLima(new Date(currentWeekStart))
-        
-        if (weekEnd >= firstDayOfPreviousMonth) {
-          const isComplete = isWeekComplete(weekEnd)
-          
-          let weekLabel = ''
-          const startDay = currentWeekStart.getDate()
-          const endDay = weekEnd.getDate()
-          const startMonth = currentWeekStart.toLocaleDateString('es-ES', { month: 'short' })
-          const endMonth = weekEnd.toLocaleDateString('es-ES', { month: 'short' })
-          const year = currentWeekStart.getFullYear()
-          
-          if (currentWeekStart.getMonth() === weekEnd.getMonth()) {
-            weekLabel = `Semana ${startDay} - ${endDay} ${endMonth} ${year} (Completa)`
-          } else {
-            weekLabel = `Semana ${startDay} ${startMonth} - ${endDay} ${endMonth} ${year} (Completa)`
-          }
-          
-          weeksArray.unshift({
-            value: `${formatDateForAPI(currentWeekStart)}_${formatDateForAPI(weekEnd)}`,
-            label: weekLabel,
-            startDate: new Date(currentWeekStart),
-            endDate: new Date(weekEnd),
-            isComplete: true,
-            isCurrent: false
-          })
-        }
-      }
-      
-      weeksArray.sort((a, b) => b.startDate.getTime() - a.startDate.getTime())
-      
-      setWeeks(weeksArray)
-      
-      if (weeksArray.length > 0) {
-        const defaultWeek = weeksArray.find(w => w.isCurrent) || weeksArray[0]
-        setSelectedWeek(defaultWeek.value)
-      }
-    }
-    
-    generateWeeks()
+    setFechaReferencia(new Date(currentDate))
+    actualizarRangoDeFechas(periodoSelect, new Date(currentDate))
   }, [currentDate])
-
-  // Filtrar semanas según el tipo seleccionado
-  const filteredWeeks = weeks.filter(week => {
-    if (tipoSemana === 'completas') return week.isComplete
-    if (tipoSemana === 'en_curso') return !week.isComplete
-    return true
-  })
-
-  // Cargar estadísticas y despachos cuando cambia la semana seleccionada o el período
-  useEffect(() => {
-    const fetchEstadisticas = async () => {
-      if (!selectedWeek && periodoSelect === 'semanal') return
-      
-      setLoading(true)
-      try {
-        let fechaInicio = ''
-        let fechaFin = ''
-        
-        if (periodoSelect === 'semanal' && selectedWeek) {
-          [fechaInicio, fechaFin] = selectedWeek.split('_')
-        } else if (periodoSelect === 'diario') {
-          // USAR formatDateForAPI para la fecha actual
-          fechaInicio = fechaFin = formatDateForAPI(getCurrentDateLima())
-        } else if (periodoSelect === 'mensual') {
-          const today = getCurrentDateLima()
-          const year = today.getFullYear()
-          const month = today.getMonth()
-          fechaInicio = formatDateForAPI(new Date(year, month, 1))
-          fechaFin = formatDateForAPI(new Date(year, month + 1, 0))
-        }
-        
-        console.log('Fetching estadísticas para:', { fechaInicio, fechaFin, periodoSelect })
-        
-        // Cargar estadísticas
-        const urlEstadisticas = `/api/estadisticas?periodo=${periodoSelect}&fechaInicio=${fechaInicio}&fechaFin=${fechaFin}`
-        const responseEstadisticas = await fetch(urlEstadisticas)
-        if (!responseEstadisticas.ok) {
-          throw new Error('Error al obtener estadísticas')
-        }
-        const dataEstadisticas = await responseEstadisticas.json()
-        
-        // Cargar despachos detallados
-        const urlDespachos = `/api/despachos?desde=${fechaInicio}&hasta=${fechaFin}`
-        const responseDespachos = await fetch(urlDespachos)
-        if (!responseDespachos.ok) {
-          throw new Error('Error al obtener despachos')
-        }
-        const dataDespachos = await responseDespachos.json()
-        
-        // SOLUCIÓN: Si es período diario, filtrar para mostrar solo despachos del día exacto
-        let despachosAjustados = dataDespachos;
-        if (periodoSelect === 'diario') {
-          despachosAjustados = dataDespachos.filter((d: Despacho) => {
-            const fechaDespacho = new Date(d.fecha_despacho).toISOString().split('T')[0];
-            return fechaDespacho === fechaInicio;
-          });
-          console.log(`Filtrados ${despachosAjustados.length} despachos para la fecha exacta ${fechaInicio}`);
-        }
-        
-        setDespachos(despachosAjustados)
-		
-		
-        
-        console.log(`Recibidos ${dataDespachos.length} despachos para el período`);
-        
-        // Procesar datos adicionales
-        const despachosConTitulo = despachosAjustados.filter((d: Despacho) => d.titulo && d.titulo.trim() !== '').length
-        const porcentajeTitulos = despachosAjustados.length > 0 ? (despachosConTitulo / despachosAjustados.length * 100) : 0
-        
-        // Calcular reporteros sin actividad
-        const reporterosConDespachos = new Set(despachosAjustados.map((d: Despacho) => d.reportero_id))
-        const totalReporteros = await fetch('/api/reporteros').then(r => r.json()).then(data => data.length)
-        const reporterosSinActividad = totalReporteros - reporterosConDespachos.size
-        
-        // Calcular horas pico reales
-        const horasPicoMap: { [key: string]: number } = {}
-        despachosAjustados.forEach((d: Despacho) => {
-          if (d.hora_despacho) {
-            const hora = d.hora_despacho.split(':')[0]
-            horasPicoMap[hora] = (horasPicoMap[hora] || 0) + 1
-          }
-        })
-        
-        const horasPicoReales = Object.entries(horasPicoMap)
-          .map(([hora, cantidad]) => ({ hora: `${hora}:00`, cantidad }))
-          .sort((a, b) => b.cantidad - a.cantidad)
-          .slice(0, 5)
-        
-        // Procesar detalle por reportero
-        const reporterosMap: { [key: number]: ReporteroDetalle } = {}
-        
-        despachosAjustados.forEach((despacho: Despacho) => {
-          if (!reporterosMap[despacho.reportero_id]) {
-            reporterosMap[despacho.reportero_id] = {
-              id: despacho.reportero_id,
-              nombre: despacho.reportero.nombre,
-              ciudad: despacho.reportero.ciudad.nombre,
-              totalDespachos: 0,
-              despachosConTitulo: 0,
-              despachosEnVivo: 0,
-              despachosConProblemas: 0,
-              porcentajeTitulos: 0,
-              porcentajeEnVivo: 0,
-              despachos: []
-            }
-          }
-          
-          const reportero = reporterosMap[despacho.reportero_id]
-          reportero.totalDespachos++
-          reportero.despachos.push(despacho)
-          
-          if (despacho.titulo && despacho.titulo.trim() !== '') {
-            reportero.despachosConTitulo++
-          }
-          if (despacho.hora_en_vivo && despacho.hora_en_vivo.trim() !== '') {
-            reportero.despachosEnVivo++
-          }
-          if (despacho.estado === 'problema') {
-            reportero.despachosConProblemas++
-          }
-        })
-        
-        // Calcular porcentajes
-        Object.values(reporterosMap).forEach(reportero => {
-          reportero.porcentajeTitulos = reportero.totalDespachos > 0 
-            ? Math.round((reportero.despachosConTitulo / reportero.totalDespachos) * 100)
-            : 0
-          reportero.porcentajeEnVivo = reportero.totalDespachos > 0
-            ? Math.round((reportero.despachosEnVivo / reportero.totalDespachos) * 100)
-            : 0
-        })
-        
-        const reporterosDetalle = Object.values(reporterosMap)
-          .sort((a, b) => b.totalDespachos - a.totalDespachos)
-        
-        // Mejorar los datos de estadísticas
-        const enhancedData = {
-          ...dataEstadisticas,
-          despachosConTitulo,
-          porcentajeTitulos: porcentajeTitulos.toFixed(1),
-          reporterosSinActividad,
-          horasPicoReales,
-          reporterosDetalle,
-          distribucionPorHora: [
-            { 
-              rango: 'Mañana (6-12h)', 
-              cantidad: despachosAjustados.filter((d: Despacho) => {
-                const hora = parseInt(d.hora_despacho?.split(':')[0] || '0')
-                return hora >= 6 && hora < 12
-              }).length,
-              porcentaje: 0 
-            },
-            { 
-              rango: 'Tarde (12-18h)', 
-              cantidad: despachosAjustados.filter((d: Despacho) => {
-                const hora = parseInt(d.hora_despacho?.split(':')[0] || '0')
-                return hora >= 12 && hora < 18
-              }).length,
-              porcentaje: 0 
-            },
-            { 
-              rango: 'Noche (18-24h)', 
-              cantidad: despachosAjustados.filter((d: Despacho) => {
-                const hora = parseInt(d.hora_despacho?.split(':')[0] || '0')
-                return hora >= 18 && hora < 24
-              }).length,
-              porcentaje: 0 
-            }
-          ]
-        }
-        
-        // Calcular porcentajes de distribución por hora
-        const totalConHora = enhancedData.distribucionPorHora.reduce((sum: number, item: any) => sum + item.cantidad, 0)
-        enhancedData.distribucionPorHora.forEach((item: any) => {
-          item.porcentaje = totalConHora > 0 ? Math.round((item.cantidad / totalConHora) * 100) : 0
-        })
-        
-        setEstadisticas(enhancedData)
-      } catch (error) {
-        console.error('Error al cargar estadísticas:', error)
-        setNotification({
-          show: true,
-          type: 'error',
-          title: 'Error',
-          message: 'No se pudieron cargar las estadísticas'
-        })
-      } finally {
-        setLoading(false)
-      }
+  
+  // Función para actualizar el rango de fechas según el período
+  const actualizarRangoDeFechas = (periodo: string, fecha: Date) => {
+    let inicio, fin;
+    
+    switch (periodo) {
+      case 'diario':
+        inicio = fin = new Date(fecha);
+        break;
+      case 'semanal':
+        inicio = getMondayLima(fecha);
+        fin = getSundayLima(fecha);
+        break;
+      case 'mensual':
+        inicio = getFirstDayOfMonth(fecha);
+        fin = getLastDayOfMonth(fecha);
+        break;
+      default:
+        inicio = getMondayLima(fecha);
+        fin = getSundayLima(fecha);
     }
     
-    fetchEstadisticas()
-  }, [selectedWeek, periodoSelect])
+    setFechaInicio(inicio);
+    setFechaFin(fin);
+    
+    // Cargar datos con el nuevo rango
+    cargarEstadisticas(formatDateForAPI(inicio), formatDateForAPI(fin), periodo);
+  }
+  
+  // Función para cargar las estadísticas desde la API
+  const cargarEstadisticas = async (desde: string, hasta: string, periodo: string) => {
+    setLoading(true);
+    try {
+      console.log(`Cargando estadísticas para: ${desde} hasta ${hasta}, período: ${periodo}`);
+      
+      // Cargar estadísticas
+      const urlEstadisticas = `/api/estadisticas?periodo=${periodo}&fechaInicio=${desde}&fechaFin=${hasta}`;
+      const responseEstadisticas = await fetch(urlEstadisticas);
+      if (!responseEstadisticas.ok) {
+        throw new Error('Error al obtener estadísticas');
+      }
+      const dataEstadisticas = await responseEstadisticas.json();
+      
+      // Cargar despachos detallados
+      const urlDespachos = `/api/despachos?desde=${desde}&hasta=${hasta}`;
+      const responseDespachos = await fetch(urlDespachos);
+      if (!responseDespachos.ok) {
+        throw new Error('Error al obtener despachos');
+      }
+      const dataDespachos = await responseDespachos.json();
+      
+      // Si es período diario, filtrar para mostrar solo despachos del día exacto
+      let despachosAjustados = dataDespachos;
+      if (periodo === 'diario') {
+        despachosAjustados = dataDespachos.filter((d: Despacho) => {
+          const fechaDespacho = new Date(d.fecha_despacho).toISOString().split('T')[0];
+          return fechaDespacho === desde;
+        });
+        console.log(`Filtrados ${despachosAjustados.length} despachos para la fecha exacta ${desde}`);
+      }
+      
+      setDespachos(despachosAjustados);
+      console.log(`Recibidos ${dataDespachos.length} despachos para el período`);
+      
+      // Procesar datos adicionales
+      const despachosConTitulo = despachosAjustados.filter((d: Despacho) => d.titulo && d.titulo.trim() !== '').length;
+      const porcentajeTitulos = despachosAjustados.length > 0 ? (despachosConTitulo / despachosAjustados.length * 100) : 0;
+      
+      // Calcular reporteros sin actividad
+      const reporterosConDespachos = new Set(despachosAjustados.map((d: Despacho) => d.reportero_id));
+      const totalReporteros = await fetch('/api/reporteros').then(r => r.json()).then(data => data.length);
+      const reporterosSinActividad = totalReporteros - reporterosConDespachos.size;
+      
+      // Calcular horas pico reales
+      const horasPicoMap: { [key: string]: number } = {};
+      despachosAjustados.forEach((d: Despacho) => {
+        if (d.hora_despacho) {
+          const hora = d.hora_despacho.split(':')[0];
+          horasPicoMap[hora] = (horasPicoMap[hora] || 0) + 1;
+        }
+      });
+      
+      const horasPicoReales = Object.entries(horasPicoMap)
+        .map(([hora, cantidad]) => ({ hora: `${hora}:00`, cantidad }))
+        .sort((a, b) => b.cantidad - a.cantidad)
+        .slice(0, 5);
+      
+      // Procesar detalle por reportero
+      const reporterosMap: { [key: number]: ReporteroDetalle } = {};
+      
+      despachosAjustados.forEach((despacho: Despacho) => {
+        if (!reporterosMap[despacho.reportero_id]) {
+          reporterosMap[despacho.reportero_id] = {
+            id: despacho.reportero_id,
+            nombre: despacho.reportero.nombre,
+            ciudad: despacho.reportero.ciudad.nombre,
+            totalDespachos: 0,
+            despachosConTitulo: 0,
+            despachosEnVivo: 0,
+            despachosConProblemas: 0,
+            porcentajeTitulos: 0,
+            porcentajeEnVivo: 0,
+            despachos: []
+          };
+        }
+        
+        const reportero = reporterosMap[despacho.reportero_id];
+        reportero.totalDespachos++;
+        reportero.despachos.push(despacho);
+        
+        if (despacho.titulo && despacho.titulo.trim() !== '') {
+          reportero.despachosConTitulo++;
+        }
+        if (despacho.hora_en_vivo && despacho.hora_en_vivo.trim() !== '') {
+          reportero.despachosEnVivo++;
+        }
+        if (despacho.estado === 'problema') {
+          reportero.despachosConProblemas++;
+        }
+      });
+      
+      // Calcular porcentajes
+      Object.values(reporterosMap).forEach(reportero => {
+        reportero.porcentajeTitulos = reportero.totalDespachos > 0 
+          ? Math.round((reportero.despachosConTitulo / reportero.totalDespachos) * 100)
+          : 0;
+        reportero.porcentajeEnVivo = reportero.totalDespachos > 0
+          ? Math.round((reportero.despachosEnVivo / reportero.totalDespachos) * 100)
+          : 0;
+      });
+      
+      const reporterosDetalle = Object.values(reporterosMap)
+        .sort((a, b) => b.totalDespachos - a.totalDespachos);
+      
+      // Mejorar los datos de estadísticas
+      const enhancedData = {
+        ...dataEstadisticas,
+        despachosConTitulo,
+        porcentajeTitulos: porcentajeTitulos.toFixed(1),
+        reporterosSinActividad,
+        horasPicoReales,
+        reporterosDetalle,
+        distribucionPorHora: [
+          { 
+            rango: 'Mañana (6-12h)', 
+            cantidad: despachosAjustados.filter((d: Despacho) => {
+              const hora = parseInt(d.hora_despacho?.split(':')[0] || '0');
+              return hora >= 6 && hora < 12;
+            }).length,
+            porcentaje: 0 
+          },
+          { 
+            rango: 'Tarde (12-18h)', 
+            cantidad: despachosAjustados.filter((d: Despacho) => {
+              const hora = parseInt(d.hora_despacho?.split(':')[0] || '0');
+              return hora >= 12 && hora < 18;
+            }).length,
+            porcentaje: 0 
+          },
+          { 
+            rango: 'Noche (18-24h)', 
+            cantidad: despachosAjustados.filter((d: Despacho) => {
+              const hora = parseInt(d.hora_despacho?.split(':')[0] || '0');
+              return hora >= 18 && hora < 24;
+            }).length,
+            porcentaje: 0 
+          }
+        ]
+      };
+      
+      // Calcular porcentajes de distribución por hora
+      const totalConHora = enhancedData.distribucionPorHora.reduce((sum: number, item: any) => sum + item.cantidad, 0);
+      enhancedData.distribucionPorHora.forEach((item: any) => {
+        item.porcentaje = totalConHora > 0 ? Math.round((item.cantidad / totalConHora) * 100) : 0;
+      });
+      
+      setEstadisticas(enhancedData);
+    } catch (error) {
+      console.error('Error al cargar estadísticas:', error);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: 'No se pudieron cargar las estadísticas'
+      });
+    } finally {
+      setLoading(false);
+      setActualizando(false);
+    }
+  };
 
-  // Función para ver detalle de reportero - CÓDIGO ACTUALIZADO
+  // Efecto para cargar estadísticas al cambiar el período
+  useEffect(() => {
+    actualizarRangoDeFechas(periodoSelect, fechaReferencia);
+  }, [periodoSelect]);
+  
+  // Función para navegar a período anterior o siguiente
+  const navegarPeriodo = (direccion: 'anterior' | 'siguiente') => {
+    let nuevaFecha = new Date(fechaReferencia);
+    
+    switch (periodoSelect) {
+      case 'diario':
+        nuevaFecha = addDays(nuevaFecha, direccion === 'anterior' ? -1 : 1);
+        break;
+      case 'semanal':
+        nuevaFecha = addDays(nuevaFecha, direccion === 'anterior' ? -7 : 7);
+        break;
+      case 'mensual':
+        nuevaFecha.setMonth(nuevaFecha.getMonth() + (direccion === 'anterior' ? -1 : 1));
+        break;
+    }
+    
+    setFechaReferencia(nuevaFecha);
+    actualizarRangoDeFechas(periodoSelect, nuevaFecha);
+  };
+
+  // Función para refrescar datos manualmente
+  const refrescarDatos = () => {
+    setActualizando(true);
+    actualizarRangoDeFechas(periodoSelect, fechaReferencia);
+  };
+  
+  // Formato para mostrar el período actual
+  const formatoPeriodoActual = () => {
+    switch (periodoSelect) {
+      case 'diario':
+        return formatDateForDisplay(fechaReferencia, { includeWeekday: true });
+      case 'semanal':
+        return `${formatDateForDisplay(fechaInicio)} - ${formatDateForDisplay(fechaFin)}`;
+      case 'mensual':
+        return fechaReferencia.toLocaleDateString('es-ES', { 
+          year: 'numeric', 
+          month: 'long' 
+        });
+    }
+  };
+
+  // Función para ver detalle de reportero - MANTENER ESTA FUNCIÓN SIN CAMBIOS
   const verDetalleReportero = (reportero: ReporteroDetalle) => {
     // Asegurar que cada despacho tenga la fecha formateada correctamente
     const despachosConFechaCorrecta = reportero.despachos.map(despacho => {
@@ -450,7 +385,23 @@ const ResumenTab = () => {
       despachos: despachosConFechaCorrecta
     });
     setShowDetalleReportero(reportero.id);
-  }
+  };
+
+  // Función para exportar a PDF
+  const handleExportPDF = async () => {
+    try {
+      let fechas = formatoPeriodoActual();
+      await exportResumenSemanalPDF(periodoSelect, fechas);
+    } catch (error) {
+      console.error('Error al exportar PDF:', error);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Error',
+        message: 'No se pudo exportar el PDF'
+      });
+    }
+  };
 
   if (loading) {
     return (
@@ -458,47 +409,22 @@ const ResumenTab = () => {
         <FontAwesomeIcon icon={faSpinner} spin className="text-3xl text-primary mr-3" />
         <span className="text-lg">Cargando estadísticas...</span>
       </div>
-    )
+    );
   }
 
   if (!estadisticas) {
     return (
       <div className="text-center p-8 bg-[#f8fafc] rounded-lg border border-[#e2e8f0] text-[#64748b]">
-        <p>No hay datos estadísticos disponibles.</p>
+        <p>No hay datos estadísticos disponibles para este período.</p>
+        <button 
+          className="mt-4 px-4 py-2 bg-[#1a56db] text-white rounded-lg hover:bg-[#1e429f] transition-colors"
+          onClick={refrescarDatos}
+        >
+          <FontAwesomeIcon icon={faSync} className="mr-2" />
+          Intentar cargar nuevamente
+        </button>
       </div>
-    )
-  }
-
-  const selectedWeekData = weeks.find(w => w.value === selectedWeek)
-  
-  // Función para exportar a PDF
-  const handleExportPDF = async () => {
-    try {
-      let fechas = ''
-      if (periodoSelect === 'semanal' && selectedWeekData) {
-        fechas = `${formatDateForDisplay(selectedWeekData.startDate)} - ${formatDateForDisplay(selectedWeekData.endDate)}`
-      } else if (periodoSelect === 'diario') {
-        fechas = formatDateForDisplay(getCurrentDateLima(), { 
-          includeWeekday: true
-        })
-      } else if (periodoSelect === 'mensual') {
-        const today = getCurrentDateLima()
-        fechas = today.toLocaleDateString('es-ES', { 
-          year: 'numeric', 
-          month: 'long' 
-        })
-      }
-      
-      await exportResumenSemanalPDF(periodoSelect, fechas)
-    } catch (error) {
-      console.error('Error al exportar PDF:', error)
-      setNotification({
-        show: true,
-        type: 'error',
-        title: 'Error',
-        message: 'No se pudo exportar el PDF'
-      })
-    }
+    );
   }
 
   return (
@@ -511,15 +437,24 @@ const ResumenTab = () => {
           </h2>
           <div className="flex gap-4 items-center">
             <button
+              onClick={refrescarDatos}
+              className="px-3 py-2 bg-[#10b981] text-white rounded-lg hover:bg-[#0d9669] transition-colors flex items-center gap-2"
+              disabled={actualizando}
+            >
+              <FontAwesomeIcon icon={actualizando ? faSpinner : faSync} spin={actualizando} />
+              {actualizando ? 'Actualizando...' : 'Actualizar'}
+            </button>
+            
+            <button
               onClick={handleExportPDF}
-              className="px-4 py-2 bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors flex items-center gap-2"
+              className="px-3 py-2 bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors flex items-center gap-2"
             >
               <FontAwesomeIcon icon={faFilePdf} />
-              Exportar Dashboard
+              Exportar PDF
             </button>
             
             <select 
-              className="px-3.5 py-2.5 text-sm border border-[#e2e8f0] rounded-lg shadow-sm transition-all focus:outline-none focus:border-[#1a56db] focus:ring focus:ring-[#1a56db] focus:ring-opacity-25"
+              className="px-3 py-2 text-sm border border-[#e2e8f0] rounded-lg shadow-sm transition-all focus:outline-none focus:border-[#1a56db] focus:ring focus:ring-[#1a56db] focus:ring-opacity-25"
               value={periodoSelect}
               onChange={(e) => setPeriodoSelect(e.target.value)}
             >
@@ -527,78 +462,34 @@ const ResumenTab = () => {
               <option value="semanal">Semanal</option>
               <option value="mensual">Mensual</option>
             </select>
-            
-            {periodoSelect === 'semanal' && (
-              <>
-                <div className="flex bg-[#f1f5f9] rounded-lg p-1">
-                  <button
-                    className={`px-3 py-1.5 text-sm rounded transition-all ${
-                      tipoSemana === 'todas' 
-                        ? 'bg-white text-[#1a56db] shadow-sm' 
-                        : 'text-[#64748b] hover:text-[#1e293b]'
-                    }`}
-                    onClick={() => setTipoSemana('todas')}
-                  >
-                    Todas
-                  </button>
-                  <button
-                    className={`px-3 py-1.5 text-sm rounded transition-all ${
-                      tipoSemana === 'completas' 
-                        ? 'bg-white text-[#1a56db] shadow-sm' 
-                        : 'text-[#64748b] hover:text-[#1e293b]'
-                    }`}
-                    onClick={() => setTipoSemana('completas')}
-                  >
-                    Completas
-                  </button>
-                  <button
-                    className={`px-3 py-1.5 text-sm rounded transition-all ${
-                      tipoSemana === 'en_curso' 
-                        ? 'bg-white text-[#1a56db] shadow-sm' 
-                        : 'text-[#64748b] hover:text-[#1e293b]'
-                    }`}
-                    onClick={() => setTipoSemana('en_curso')}
-                  >
-                    En curso
-                  </button>
-                </div>
-                
-                <select 
-                  className="w-96 px-3.5 py-2.5 text-sm border border-[#e2e8f0] rounded-lg shadow-sm transition-all focus:outline-none focus:border-[#1a56db] focus:ring focus:ring-[#1a56db] focus:ring-opacity-25"
-                  value={selectedWeek}
-                  onChange={(e) => setSelectedWeek(e.target.value)}
-                >
-                  {filteredWeeks.map(week => (
-                    <option key={week.value} value={week.value}>
-                      {week.label}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
           </div>
         </div>
 
-        {/* Información del período seleccionado */}
-        {periodoSelect === 'semanal' && selectedWeekData && (
-          <div className="bg-[#eff6ff] border border-[#3b82f6] rounded-lg p-4 mb-6 flex items-center gap-3" id="period-info-banner">
-            <FontAwesomeIcon icon={faCalendarWeek} className="text-[#3b82f6]" />
-            <div>
-              <p className="text-sm text-[#1e40af]">
-                <strong>Período analizado:</strong> {formatDateForDisplay(selectedWeekData.startDate, { 
-                  includeWeekday: true
-                })} - {formatDateForDisplay(selectedWeekData.endDate, { 
-                  includeWeekday: true
-                })}
-              </p>
-              {selectedWeekData.isCurrent && (
-                <p className="text-xs text-[#3730a3] mt-1">
-                  Esta es la semana en curso. Los datos se actualizan en tiempo real.
-                </p>
-              )}
-            </div>
+        {/* Navegación de período */}
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-6 flex items-center justify-between">
+          <button 
+            onClick={() => navegarPeriodo('anterior')}
+            className="px-3 py-2 bg-white border border-[#e2e8f0] rounded-lg hover:bg-[#f8fafc] transition-colors flex items-center gap-2"
+          >
+            <FontAwesomeIcon icon={faChevronLeft} />
+            {periodoSelect === 'diario' ? 'Día anterior' : 
+             periodoSelect === 'semanal' ? 'Semana anterior' : 'Mes anterior'}
+          </button>
+          
+          <div className="flex items-center gap-2 font-medium">
+            <FontAwesomeIcon icon={faCalendar} className="text-[#1a56db]" />
+            <span>{formatoPeriodoActual()}</span>
           </div>
-        )}
+          
+          <button 
+            onClick={() => navegarPeriodo('siguiente')}
+            className="px-3 py-2 bg-white border border-[#e2e8f0] rounded-lg hover:bg-[#f8fafc] transition-colors flex items-center gap-2"
+          >
+            {periodoSelect === 'diario' ? 'Día siguiente' : 
+             periodoSelect === 'semanal' ? 'Semana siguiente' : 'Mes siguiente'}
+            <FontAwesomeIcon icon={faChevronRight} />
+          </button>
+        </div>
 
         {/* KPIs principales */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -613,9 +504,10 @@ const ResumenTab = () => {
               </div>
             </div>
             <div className="mt-2 text-sm text-[#64748b]">
-              {periodoSelect === 'semanal' && selectedWeekData && (
-                <span>{selectedWeekData.isComplete ? 'Semana completa' : 'Semana en curso'}</span>
-              )}
+              <span>
+                {periodoSelect === 'diario' ? 'Del día' : 
+                 periodoSelect === 'semanal' ? 'De la semana' : 'Del mes'}
+              </span>
             </div>
           </div>
 
@@ -740,7 +632,7 @@ const ResumenTab = () => {
                 </tr>
               </thead>
               <tbody>
-                {estadisticas.reporterosDetalle?.slice(0, 10).map((reportero, index) => (
+                {estadisticas.reporterosDetalle?.map((reportero, index) => (
                   <tr key={reportero.id} className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]">
                     <td className="py-3 px-4">
                       <div className="font-medium text-[#1e293b]">{reportero.nombre}</div>
@@ -780,91 +672,11 @@ const ResumenTab = () => {
             </table>
             {(estadisticas.reporterosDetalle?.length || 0) > 10 && (
               <div className="p-4 text-center text-sm text-[#64748b]">
-                Mostrando 10 de {estadisticas.reporterosDetalle?.length} reporteros
+                Mostrando primeros {Math.min(10, estadisticas.reporterosDetalle?.length || 0)} de {estadisticas.reporterosDetalle?.length} reporteros
               </div>
             )}
           </div>
         </div>
-
-        {/* Modal de detalle de reportero */}
-        {showDetalleReportero && reporteroSeleccionado && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-              <div className="p-4 border-b border-[#e2e8f0] flex justify-between items-center">
-                <h3 className="font-semibold text-[#1a365d] flex items-center gap-2">
-                  <FontAwesomeIcon icon={faUser} />
-                  Despachos de {reporteroSeleccionado.nombre}
-                </h3>
-                <button
-                  onClick={() => setShowDetalleReportero(null)}
-                  className="text-[#64748b] hover:text-[#1e293b] transition-colors"
-                >
-                  <FontAwesomeIcon icon={faTimes} />
-                </button>
-              </div>
-              <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
-                <div className="grid grid-cols-4 gap-4 mb-4">
-                  <div className="bg-[#f8fafc] p-3 rounded-lg">
-                    <div className="text-xs text-[#64748b]">Total Despachos</div>
-                    <div className="text-xl font-semibold text-[#1e293b]">{reporteroSeleccionado.totalDespachos}</div>
-                  </div>
-                  <div className="bg-[#ecfdf5] p-3 rounded-lg">
-                    <div className="text-xs text-[#64748b]">Con Título</div>
-                    <div className="text-xl font-semibold text-[#10b981]">{reporteroSeleccionado.despachosConTitulo}</div>
-                  </div>
-                  <div className="bg-[#eff6ff] p-3 rounded-lg">
-                    <div className="text-xs text-[#64748b]">En Vivo</div>
-                    <div className="text-xl font-semibold text-[#3b82f6]">{reporteroSeleccionado.despachosEnVivo}</div>
-                  </div>
-                  <div className="bg-[#fee2e2] p-3 rounded-lg">
-                    <div className="text-xs text-[#64748b]">Problemas</div>
-                    <div className="text-xl font-semibold text-[#ef4444]">{reporteroSeleccionado.despachosConProblemas}</div>
-                  </div>
-                </div>
-                
-                <table className="w-full">
-                  <thead className="bg-[#f8fafc]">
-                    <tr>
-                      <th className="text-left py-2 px-3 text-sm">Fecha</th>
-                      <th className="text-left py-2 px-3 text-sm">N°</th>
-                      <th className="text-left py-2 px-3 text-sm">Título</th>
-                      <th className="text-center py-2 px-3 text-sm">Hora</th>
-                      <th className="text-center py-2 px-3 text-sm">En Vivo</th>
-                      <th className="text-center py-2 px-3 text-sm">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reporteroSeleccionado.despachos.map((despacho) => (
-                      <tr key={despacho.id} className="border-b border-[#e2e8f0]">
-                        <td className="py-2 px-3 text-sm">
-                          {despacho.fecha_despacho_formateada || (() => {
-                            // Si no existe fecha_despacho_formateada, crear formato de respaldo
-                            const fechaObj = new Date(despacho.fecha_despacho);
-                            fechaObj.setHours(fechaObj.getHours() + 5); // Compensar zona horaria
-                            return formatDateForDisplay(fechaObj);
-                          })()}
-                        </td>
-                        <td className="py-2 px-3 text-sm">{despacho.numero_despacho}</td>
-                        <td className="py-2 px-3 text-sm">{despacho.titulo || '-'}</td>
-                        <td className="py-2 px-3 text-sm text-center">{despacho.hora_despacho || '-'}</td>
-                        <td className="py-2 px-3 text-sm text-center">{despacho.hora_en_vivo || '-'}</td>
-                        <td className="py-2 px-3 text-sm text-center">
-                          <span className={`inline-block px-2 py-1 rounded text-xs ${
-                            despacho.estado === 'completado' ? 'bg-green-100 text-green-800' :
-                            despacho.estado === 'problema' ? 'bg-red-100 text-red-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {despacho.estado || 'Programado'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Top Ciudades y Reporteros */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -1218,8 +1030,99 @@ const ResumenTab = () => {
           </div>
         </div>
       </div>
-    </div>
-  )
-}
 
-export default ResumenTab
+      {/* Modal de detalle de reportero */}
+      {showDetalleReportero && reporteroSeleccionado && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="p-4 border-b border-[#e2e8f0] flex justify-between items-center">
+              <h3 className="font-semibold text-[#1a365d] flex items-center gap-2">
+                <FontAwesomeIcon icon={faUser} />
+                Despachos de {reporteroSeleccionado.nombre}
+              </h3>
+              <button
+                onClick={() => setShowDetalleReportero(null)}
+                className="text-[#64748b] hover:text-[#1e293b] transition-colors"
+              >
+                <FontAwesomeIcon icon={faTimes} />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
+              <div className="grid grid-cols-4 gap-4 mb-4">
+                <div className="bg-[#f8fafc] p-3 rounded-lg">
+                  <div className="text-xs text-[#64748b]">Total Despachos</div>
+                  <div className="text-xl font-semibold text-[#1e293b]">{reporteroSeleccionado.totalDespachos}</div>
+                </div>
+                <div className="bg-[#ecfdf5] p-3 rounded-lg">
+                  <div className="text-xs text-[#64748b]">Con Título</div>
+                  <div className="text-xl font-semibold text-[#10b981]">{reporteroSeleccionado.despachosConTitulo}</div>
+                </div>
+                <div className="bg-[#eff6ff] p-3 rounded-lg">
+                  <div className="text-xs text-[#64748b]">En Vivo</div>
+                  <div className="text-xl font-semibold text-[#3b82f6]">{reporteroSeleccionado.despachosEnVivo}</div>
+                </div>
+                <div className="bg-[#fee2e2] p-3 rounded-lg">
+                  <div className="text-xs text-[#64748b]">Problemas</div>
+                  <div className="text-xl font-semibold text-[#ef4444]">{reporteroSeleccionado.despachosConProblemas}</div>
+                </div>
+              </div>
+              
+              {/* Periodo seleccionado */}
+              <div className="mb-4 bg-[#f8fafc] p-3 rounded-lg flex items-center justify-between">
+                <span className="text-sm text-[#475569]">
+                  <FontAwesomeIcon icon={faCalendar} className="mr-2 text-[#1a56db]" />
+                  Período: {formatoPeriodoActual()}
+                </span>
+                <span className="text-sm font-medium text-[#1a56db]">
+                  {reporteroSeleccionado.despachos.length} despachos en este período
+                </span>
+              </div>
+              
+              <table className="w-full">
+                <thead className="bg-[#f8fafc]">
+                  <tr>
+                    <th className="text-left py-2 px-3 text-sm">Fecha</th>
+                    <th className="text-left py-2 px-3 text-sm">N°</th>
+                    <th className="text-left py-2 px-3 text-sm">Título</th>
+                    <th className="text-center py-2 px-3 text-sm">Hora</th>
+                    <th className="text-center py-2 px-3 text-sm">En Vivo</th>
+                    <th className="text-center py-2 px-3 text-sm">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reporteroSeleccionado.despachos.map((despacho) => (
+                    <tr key={despacho.id} className="border-b border-[#e2e8f0]">
+                      <td className="py-2 px-3 text-sm">
+                        {despacho.fecha_despacho_formateada || (() => {
+                          // Si no existe fecha_despacho_formateada, crear formato de respaldo
+                          const fechaObj = new Date(despacho.fecha_despacho);
+                          fechaObj.setHours(fechaObj.getHours() + 5); // Compensar zona horaria
+                          return formatDateForDisplay(fechaObj);
+                        })()}
+                      </td>
+                      <td className="py-2 px-3 text-sm">{despacho.numero_despacho}</td>
+                      <td className="py-2 px-3 text-sm">{despacho.titulo || '-'}</td>
+                      <td className="py-2 px-3 text-sm text-center">{despacho.hora_despacho || '-'}</td>
+                      <td className="py-2 px-3 text-sm text-center">{despacho.hora_en_vivo || '-'}</td>
+                      <td className="py-2 px-3 text-sm text-center">
+                        <span className={`inline-block px-2 py-1 rounded text-xs ${
+                          despacho.estado === 'completado' ? 'bg-green-100 text-green-800' :
+                          despacho.estado === 'problema' ? 'bg-red-100 text-red-800' :
+                          'bg-blue-100 text-blue-800'
+                        }`}>
+                          {despacho.estado || 'Programado'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ResumenTab;

@@ -1,4 +1,4 @@
-// Componente ReporterCard mejorado con manejo de guardado individual
+// components/ReporterCard.tsx - Actualizado para 5 despachos
 import { useState } from 'react'
 import { Reportero, Despacho } from './AppContext'
 import DespachoCard from './DespachoCard'
@@ -47,7 +47,8 @@ const ReporterCard: React.FC<ReporterCardProps> = ({
       // Recopilar datos de todos los inputs
       const nuevosDespachos = []
       
-      for (let i = 1; i <= 3; i++) {
+      // Actualizado de 3 a 5 despachos
+      for (let i = 1; i <= 5; i++) {
         const titulo = (document.getElementById(`titulo-${reportero.id}-${i}`) as HTMLInputElement)?.value || ''
         const hora = (document.getElementById(`hora-${reportero.id}-${i}`) as HTMLInputElement)?.value || ''
         const vivo = (document.getElementById(`vivo-${reportero.id}-${i}`) as HTMLInputElement)?.value || ''
@@ -103,7 +104,8 @@ const ReporterCard: React.FC<ReporterCardProps> = ({
         </button>
       </div>
       <div className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Primera fila de despachos (3 tarjetas) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <DespachoCard 
             reporterId={reportero.id} 
             despachoNum={1} 
@@ -122,6 +124,24 @@ const ReporterCard: React.FC<ReporterCardProps> = ({
             reporterId={reportero.id} 
             despachoNum={3} 
             initialValues={getInitialValues(3)}
+            onSave={onSaveDespacho}
+            onUpdate={onUpdateDespacho}
+          />
+        </div>
+        
+        {/* Segunda fila de despachos (2 tarjetas centradas) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:max-w-2xl md:mx-auto">
+          <DespachoCard 
+            reporterId={reportero.id} 
+            despachoNum={4} 
+            initialValues={getInitialValues(4)}
+            onSave={onSaveDespacho}
+            onUpdate={onUpdateDespacho}
+          />
+          <DespachoCard 
+            reporterId={reportero.id} 
+            despachoNum={5} 
+            initialValues={getInitialValues(5)}
             onSave={onSaveDespacho}
             onUpdate={onUpdateDespacho}
           />
